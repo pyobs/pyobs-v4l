@@ -24,14 +24,14 @@ class v4lCamera(BaseWebcam):
         # loop until closing
         last = time.time()
         while not self.closing.is_set():
+            # read frame
+            _, frame = camera.read()
+
             # if time since last image is too short, wait a little
             if time.time() - last < self._interval:
                 self.closing.wait(0.01)
                 continue
             last = time.time()
-
-            # read image
-            ret, frame = camera.read()
 
             # process it
             self._set_image(frame)
