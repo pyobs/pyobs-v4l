@@ -1,15 +1,15 @@
 import time
 import logging
 
-from pyobs.modules.camera import BaseWebcam
+from pyobs.modules.camera import BaseVideo
 import cv2
 
 log = logging.getLogger(__name__)
 
 
-class v4lCamera(BaseWebcam):
+class v4lCamera(BaseVideo):
     def __init__(self, device: int = 0, *args, **kwargs):
-        BaseWebcam.__init__(self, *args, **kwargs)
+        BaseVideo.__init__(self, *args, **kwargs)
 
         # store
         self._device = device
