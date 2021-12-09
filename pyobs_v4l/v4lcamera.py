@@ -1,3 +1,4 @@
+import asyncio
 import time
 import logging
 
@@ -15,9 +16,9 @@ class v4lCamera(BaseVideo):
         self._device = device
 
         # thread
-        self.add_thread_func(self._capture)
+        self.add_background_task(self._capture)
 
-    def _capture(self):
+    async def _capture(self):
         # open camera
         camera = cv2.VideoCapture(self._device)
 
@@ -29,12 +30,12 @@ class v4lCamera(BaseVideo):
 
             # if time since last image is too short, wait a little
             if time.time() - last < self._interval:
-                self.closing.wait(0.01)
+                await asyncio.sleep(0.01)
                 continue
             last = time.time()
 
             # process it
-            self._set_image(frame)
+            await self._set_image(frame)
 
         # release camera
         camera.release()
