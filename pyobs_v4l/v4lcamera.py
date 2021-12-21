@@ -24,7 +24,7 @@ class v4lCamera(BaseVideo):
 
         # loop until closing
         last = time.time()
-        while not self.closing.is_set():
+        while True:
             # read frame
             _, frame = camera.read()
 
