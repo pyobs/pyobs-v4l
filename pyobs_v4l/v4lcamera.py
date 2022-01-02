@@ -1,16 +1,18 @@
 import asyncio
 import time
 import logging
+from typing import Any
+import cv2
 
 from pyobs.modules.camera import BaseVideo
-import cv2
+
 
 log = logging.getLogger(__name__)
 
 
 class v4lCamera(BaseVideo):
-    def __init__(self, device: int = 0, *args, **kwargs):
-        BaseVideo.__init__(self, *args, **kwargs)
+    def __init__(self, device: int = 0, **kwargs: Any):
+        BaseVideo.__init__(self, **kwargs)
 
         # store
         self._device = device
@@ -18,7 +20,7 @@ class v4lCamera(BaseVideo):
         # thread
         self.add_background_task(self._capture)
 
-    async def _capture(self):
+    async def _capture(self) -> None:
         # open camera
         camera = cv2.VideoCapture(self._device)
 
@@ -41,4 +43,4 @@ class v4lCamera(BaseVideo):
         camera.release()
 
 
-__all__ = ['v4lCamera']
+__all__ = ["v4lCamera"]
