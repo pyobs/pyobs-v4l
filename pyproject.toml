@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "pyobs-v4l"
+version = "1.0.0"
+description = "pyobs module for V4L cameras"
+authors = ["Tim-Oliver Husser <thusser@uni-goettingen.de>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13"
+
+[tool.poetry.dev-dependencies]
+black = "^21.12b0"
+pre-commit = "^2.16.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ['py39']
