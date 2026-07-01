@@ -1,11 +1,10 @@
 import asyncio
-import time
 import logging
+import time
 from typing import Any
+
 import cv2
-
 from pyobs.modules.camera import BaseVideo
-
 
 log = logging.getLogger(__name__)
 
