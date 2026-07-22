@@ -6,7 +6,7 @@ authors = [{ name = "Tim-Oliver Husser", email = "thusser@uni-goettingen.de" }]
 requires-python = ">=3.11,<3.14"
 license = "MIT"
 dependencies = [
-    "opencv-python>=4.0,<5",
+    "opencv-python>=4.0,<6",
     "pyobs-core>=2.0.0.dev1,<3",
 ]
 
