@@ -46,6 +46,7 @@ select = ["E", "F", "W", "I", "UP", "G"]
 [tool.pyrefly]
 python-version = "3.11"
 replace-imports-with-any = ["cv2"]
+project-excludes = ["pyobs_v4l/gui.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
