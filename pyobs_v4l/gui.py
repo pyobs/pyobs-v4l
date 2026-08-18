@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,9 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle(f"V4L Camera — /dev/video{device}")
 
-        self._camera = cv2.VideoCapture(device)
+        self._device = device
+        self._camera: cv2.VideoCapture | None = None
+        self._lock = threading.Lock()
         self._last_frame: cv2.typing.MatLike | None = None
         self._preview_task: asyncio.Task[None] | None = None
 
@@ -37,10 +40,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._preview_task = asyncio.ensure_future(self._live_preview())
 
+    async def _open_camera(self) -> cv2.VideoCapture:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, cv2.VideoCapture, self._device)
+
+    def _read_frame(self) -> tuple[bool, Any]:
+        with self._lock:
+            if self._camera is None:
+                return False, None
+            return self._camera.read()
+
     async def _live_preview(self) -> None:
         loop = asyncio.get_running_loop()
+        self._camera = await self._open_camera()
         while True:
-            ret, frame = await loop.run_in_executor(None, self._camera.read)
+            ret, frame = await loop.run_in_executor(None, self._read_frame)
             if ret:
                 self._last_frame = frame
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -54,7 +68,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.expose.start_exposure(0.0)
         for _ in range(count):
             loop = asyncio.get_running_loop()
-            ret, frame = await loop.run_in_executor(None, self._camera.read)
+            ret, frame = await loop.run_in_executor(None, self._read_frame)
             if ret:
                 self._last_frame = frame
         gray = cv2.cvtColor(self._last_frame, cv2.COLOR_BGR2GRAY)
@@ -64,7 +78,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event: Any) -> None:
         if self._preview_task is not None:
             self._preview_task.cancel()
-        self._camera.release()
+        if self._camera is not None:
+            self._camera.release()
         super().closeEvent(event)
 
 
