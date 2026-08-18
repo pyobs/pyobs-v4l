@@ -78,8 +78,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event: Any) -> None:
         if self._preview_task is not None:
             self._preview_task.cancel()
-        if self._camera is not None:
-            self._camera.release()
+        # take the same lock _read_frame() uses so release() can't race an in-flight read()
+        # still running on the executor thread (task.cancel() only requests cancellation)
+        with self._lock:
+            if self._camera is not None:
+                self._camera.release()
         super().closeEvent(event)
 
 
