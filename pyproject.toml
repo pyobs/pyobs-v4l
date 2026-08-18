@@ -1,18 +1,18 @@
 [project]
 name = "pyobs-v4l"
-version = "2.0.0.dev4"
+version = "2.0.0.dev5"
 description = "pyobs module for V4L cameras"
 authors = [{ name = "Tim-Oliver Husser", email = "thusser@uni-goettingen.de" }]
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
-    "opencv-python>=4.0,<5",
-    "pyobs-core>=2.0.0.dev1,<3",
+    "opencv-python>=4.0,<6",
+    "pyobs-core>=2.0.0.dev48,<3",
 ]
 
 [project.optional-dependencies]
 gui = [
-    "pyobs-core[gui]>=2.0.0.dev1,<3",
+    "pyobs-core[gui]>=2.0.0.dev48,<3",
 ]
 
 [project.scripts]
@@ -20,10 +20,12 @@ v4l-gui = "pyobs_v4l.gui:main"
 
 [dependency-groups]
 dev = [
-    "black>=25.1.0,<26",
+    "black>=25.1.0,<27",
     "ruff>=0.9.0",
     "pyrefly>=1.1.1",
     "pre-commit>=4.2.0,<5",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
 ]
 
 [build-system]
@@ -43,3 +45,8 @@ select = ["E", "F", "W", "I", "UP", "G"]
 
 [tool.pyrefly]
 python-version = "3.11"
+replace-imports-with-any = ["cv2"]
+project-excludes = ["pyobs_v4l/gui.py"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
