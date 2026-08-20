@@ -43,11 +43,17 @@ class v4lCamera(BaseVideo):
         loop = asyncio.get_running_loop()
         future: asyncio.Future[None] = loop.create_future()
 
+        def _finish() -> None:
+            # wait_for cancels the future on timeout, so guard set_result to avoid an
+            # InvalidStateError from the loop thread once the orphaned call finally ends.
+            if not future.done():
+                future.set_result(None)
+
         def _wrapper() -> None:
             try:
                 func()
             finally:
-                loop.call_soon_threadsafe(future.set_result, None)
+                loop.call_soon_threadsafe(_finish)
 
         threading.Thread(target=_wrapper, daemon=True).start()
         try:
@@ -59,11 +65,23 @@ class v4lCamera(BaseVideo):
     async def _open_camera(self) -> Any:
         """Open the V4L2 camera device, without blocking the event loop."""
         result: list[Any] = []
+        lock = threading.Lock()
+        timed_out = False
 
         def _open() -> None:
-            result.append(cv2.VideoCapture(self._device))
+            camera = cv2.VideoCapture(self._device)
+            with lock:
+                if timed_out:
+                    # timed out while still opening; release the handle nobody will use
+                    camera.release()
+                else:
+                    result.append(camera)
 
         if not await self._run_blocking(_open):
+            with lock:
+                timed_out = True
+                if result:
+                    result.pop().release()
             raise TimeoutError(f"Timed out opening camera device after {_SDK_CALL_TIMEOUT}s.")
         return result[0]
 
@@ -88,25 +106,26 @@ class v4lCamera(BaseVideo):
         # open camera
         camera = await self._open_camera()
 
-        # loop until closing
+        # loop until the background task is cancelled on close
         last = time.time()
-        while True:
-            # read frame
-            frame = await self._read_frame(camera)
-            if frame is None:
-                continue
+        try:
+            while True:
+                # read frame
+                frame = await self._read_frame(camera)
+                if frame is None:
+                    continue
 
-            # if time since last image is too short, wait a little
-            if time.time() - last < self._interval:
-                await asyncio.sleep(0.01)
-                continue
-            last = time.time()
+                # if time since last image is too short, wait a little
+                if time.time() - last < self._interval:
+                    await asyncio.sleep(0.01)
+                    continue
+                last = time.time()
 
-            # process it
-            await self._set_image(frame)
-
-        # release camera
-        camera.release()
+                # process it
+                await self._set_image(frame)
+        finally:
+            # release camera
+            camera.release()
 
 
 __all__ = ["v4lCamera"]
