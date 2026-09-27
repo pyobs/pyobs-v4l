@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import threading
-import time
 from collections.abc import Callable
 from typing import Any
 
@@ -107,7 +106,6 @@ class v4lCamera(BaseVideo):
         camera = await self._open_camera()
 
         # loop until the background task is cancelled on close
-        last = time.time()
         try:
             while True:
                 # read frame
@@ -115,13 +113,9 @@ class v4lCamera(BaseVideo):
                 if frame is None:
                     continue
 
-                # if time since last image is too short, wait a little
-                if time.time() - last < self._interval:
-                    await asyncio.sleep(0.01)
-                    continue
-                last = time.time()
-
-                # process it
+                # deliver every frame -- BaseVideo's video_handler/_set_image() already
+                # throttle the live-view JPEG output to self._interval on their own, and
+                # grab_stack()/grab_data()/the raw stream all need the real per-frame rate
                 await self._set_image(frame)
         finally:
             # release camera
