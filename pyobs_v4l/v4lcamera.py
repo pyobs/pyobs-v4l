@@ -1,12 +1,11 @@
 import asyncio
 import logging
 import threading
-import time
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 import cv2
-from pyobs.modules.camera import BaseVideo
+from pyobs.modules.camera import BaseVideo, Frame
 
 log = logging.getLogger(__name__)
 
@@ -15,20 +14,45 @@ log = logging.getLogger(__name__)
 # bounded with a timeout rather than let a single dead camera freeze the whole module.
 _SDK_CALL_TIMEOUT = 5.0
 
-# read() waits for the next frame, which can legitimately take a while depending on the camera's
-# own frame rate -- a more generous timeout than _SDK_CALL_TIMEOUT so normal operation never trips it.
+# frames() warns if no frame arrived for this long. Frames legitimately take up to the camera's
+# own frame interval, so this is much more generous than _SDK_CALL_TIMEOUT.
 _FRAME_WAIT_TIMEOUT = 30.0
+
+# frames queued between the reader thread and the event loop; latest wins beyond that
+_QUEUE_SIZE = 5
 
 
 class v4lCamera(BaseVideo):
-    def __init__(self, device: int = 0, **kwargs: Any):
+    """A pyobs module for V4L2 cameras, e.g. webcams.
+
+    The device is opened while the module is active and released when it goes to sleep. V4L2
+    gives no reliable exposure time or exposure start via OpenCV, so frames carry neither and
+    DATE-OBS is the frame's arrival time.
+    """
+
+    __module__ = "pyobs_v4l"
+
+    def __init__(self, device: int = 0, color: bool = False, **kwargs: Any):
+        """Initializes a new v4lCamera.
+
+        Args:
+            device: Index of the V4L2 device, i.e. N in /dev/videoN.
+            color: Keep colour frames (RGB, colour as last axis) instead of converting them to
+                greyscale. Colour frames work for the live view, but not for grab_stack(), and
+                are stored as 3D FITS files.
+        """
         BaseVideo.__init__(self, **kwargs)
 
         # store
         self._device = device
+        self._color = color
 
-        # thread
-        self.add_background_task(self._capture)
+    async def open(self) -> None:
+        """Open module."""
+        await BaseVideo.open(self)
+
+        # start streaming
+        await self.activate_camera()
 
     @staticmethod
     async def _run_blocking(func: Callable[[], None], timeout: float = _SDK_CALL_TIMEOUT) -> bool:
@@ -53,7 +77,11 @@ class v4lCamera(BaseVideo):
             try:
                 func()
             finally:
-                loop.call_soon_threadsafe(_finish)
+                try:
+                    loop.call_soon_threadsafe(_finish)
+                except RuntimeError:
+                    # event loop closed (shutdown)
+                    pass
 
         threading.Thread(target=_wrapper, daemon=True).start()
         try:
@@ -63,7 +91,12 @@ class v4lCamera(BaseVideo):
             return False
 
     async def _open_camera(self) -> Any:
-        """Open the V4L2 camera device, without blocking the event loop."""
+        """Open the V4L2 camera device, without blocking the event loop.
+
+        Raises:
+            TimeoutError: If opening didn't finish in time.
+            RuntimeError: If the device could not be opened.
+        """
         result: list[Any] = []
         lock = threading.Lock()
         timed_out = False
@@ -83,49 +116,78 @@ class v4lCamera(BaseVideo):
                 if result:
                     result.pop().release()
             raise TimeoutError(f"Timed out opening camera device after {_SDK_CALL_TIMEOUT}s.")
-        return result[0]
 
-    async def _read_frame(self, camera: Any) -> Any:
-        """Read the next frame from the camera, without blocking the event loop.
+        # VideoCapture() doesn't raise for a missing/busy device, it just isn't opened
+        camera = result[0]
+        if not camera.isOpened():
+            camera.release()
+            raise RuntimeError(f"Could not open camera device {self._device}.")
+        return camera
 
-        Returns:
-            The next frame, or None if the read timed out.
+    def _convert(self, frame: Any) -> Any:
+        """Convert a frame from OpenCV's BGR to greyscale, or to RGB if colour is kept."""
+        if frame.ndim != 3:
+            return frame
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB if self._color else cv2.COLOR_BGR2GRAY)
+
+    async def frames(self) -> AsyncGenerator[Frame, None]:
+        """Open the device and yield frames until BaseVideo closes the iterator.
+
+        A single reader thread owns the device for the whole activation, reads frames and hands
+        them to the event loop, and releases the device when it's told to stop. A failed read ends
+        the iterator with an error, so BaseVideo restarts it with a back-off.
         """
-        result: list[Any] = []
-
-        def _read() -> None:
-            _, frame = camera.read()
-            result.append(frame)
-
-        if not await self._run_blocking(_read, timeout=_FRAME_WAIT_TIMEOUT):
-            log.error("Timed out reading frame after %.1fs.", _FRAME_WAIT_TIMEOUT)
-            return None
-        return result[0]
-
-    async def _capture(self) -> None:
-        # open camera
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[Frame | BaseException] = asyncio.Queue(maxsize=_QUEUE_SIZE)
+        stop = threading.Event()
         camera = await self._open_camera()
 
-        # loop until the background task is cancelled on close
-        last = time.time()
+        def _put(item: Frame | BaseException) -> None:
+            # latest wins: a stalled event loop mustn't grow memory
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(item)
+
+        def _read() -> None:
+            try:
+                while not stop.is_set():
+                    item: Frame | BaseException
+                    try:
+                        # read() returns a fresh array per call, so no copy needed
+                        ok, frame = camera.read()
+                        if ok and frame is not None:
+                            item = Frame(data=self._convert(frame))
+                        else:
+                            item = RuntimeError(f"Could not read frame from camera device {self._device}.")
+                    except Exception as e:
+                        item = e
+                    if stop.is_set():
+                        return
+                    try:
+                        loop.call_soon_threadsafe(_put, item)
+                    except RuntimeError:
+                        # event loop closed (shutdown)
+                        return
+                    if isinstance(item, BaseException):
+                        return
+            finally:
+                camera.release()
+
+        threading.Thread(target=_read, daemon=True).start()
         try:
             while True:
-                # read frame
-                frame = await self._read_frame(camera)
-                if frame is None:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=_FRAME_WAIT_TIMEOUT)
+                except TimeoutError:
+                    log.warning("No frame from camera for %.1fs.", _FRAME_WAIT_TIMEOUT)
                     continue
-
-                # if time since last image is too short, wait a little
-                if time.time() - last < self._interval:
-                    await asyncio.sleep(0.01)
-                    continue
-                last = time.time()
-
-                # process it
-                await self._set_image(frame)
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
         finally:
-            # release camera
-            camera.release()
+            # don't join the reader: if it hangs in read(), it must not block deactivation; it
+            # releases the device itself once read() returns
+            stop.set()
 
 
 __all__ = ["v4lCamera"]
