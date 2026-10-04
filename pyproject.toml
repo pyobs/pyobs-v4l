@@ -5,10 +5,17 @@ description = "pyobs module for V4L cameras"
 authors = [{ name = "Tim-Oliver Husser", email = "thusser@uni-goettingen.de" }]
 requires-python = ">=3.11"
 license = "MIT"
+readme = "README.md"
 dependencies = [
     "opencv-python>=4.0,<6",
     "pyobs-core>=2.13.1,<3",
 ]
+
+[project.urls]
+Homepage = "https://www.pyobs.org"
+Documentation = "https://docs.pyobs.org"
+Repository = "https://github.com/pyobs/pyobs-v4l"
+Issues = "https://github.com/pyobs/pyobs-v4l/issues"
 
 [project.optional-dependencies]
 gui = [
