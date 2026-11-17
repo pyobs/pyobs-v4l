@@ -5,7 +5,10 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 import cv2
+from pyobs.images import Image
 from pyobs.modules.camera import BaseVideo, Frame
+from pyobs.utils.enums import ImageType
+from pyobs.utils.frameheader import FrameSettings, make_frame_header
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +92,11 @@ class v4lCamera(BaseVideo):
             return True
         except TimeoutError:
             return False
+
+    async def _finish_image(self, image: Image, broadcast: bool, image_type: ImageType) -> tuple[Image, str]:
+        """Add the device name as instrument, then finish up as usual."""
+        image.header.update(make_frame_header(FrameSettings(instrument=f"/dev/video{self._device}")))
+        return await super()._finish_image(image, broadcast, image_type)
 
     async def _open_camera(self) -> Any:
         """Open the V4L2 camera device, without blocking the event loop.

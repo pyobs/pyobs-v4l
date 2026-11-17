@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries for releases before this file existed were generated from commit subjects.
 
+## [Unreleased]
+
+- `v4lCamera` writes the device (`/dev/videoN`) as `INSTRUME`. The GUI writes a FITS header into the frames it saves (it
+  was empty): the instrument and data statistics. Both use `make_frame_header` from pyobs-core. Needs pyobs-core 2.28.0
+  (the pin in `pyproject.toml` is still 2.13.1).
+
 ## [2.1.0] - 2026-09-29
 
 - Move v4lCamera to the BaseVideo frames() contract

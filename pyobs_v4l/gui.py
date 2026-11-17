@@ -7,8 +7,23 @@ from typing import Any
 import cv2
 import qasync  # type: ignore[import-untyped]
 from astropy.io import fits
+from numpy.typing import NDArray
+from pyobs.utils.frameheader import FrameSettings, make_frame_header
 from pyobs.utils.gui.camera import DataDisplayWidget, ExposeWidget
 from PySide6 import QtWidgets  # type: ignore[import-untyped]
+
+
+def make_header(device: int, data: NDArray[Any]) -> fits.Header:
+    """Builds the FITS header for a frame. All the camera tells is its device, so that and the data statistics.
+
+    Args:
+        device: Index of the V4L device, used as instrument name.
+        data: The frame.
+
+    Returns:
+        The header.
+    """
+    return make_frame_header(FrameSettings(instrument=f"/dev/video{device}", data=data))
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -58,7 +73,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if ret:
                 self._last_frame = frame
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                self.display.set_data(fits.PrimaryHDU(gray))
+                self.display.set_data(fits.PrimaryHDU(gray, header=make_header(self._device, gray)))
             await asyncio.sleep(0.05)
 
     @qasync.asyncSlot(int)  # type: ignore[misc]
@@ -72,7 +87,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if ret:
                 self._last_frame = frame
         gray = cv2.cvtColor(self._last_frame, cv2.COLOR_BGR2GRAY)
-        self.display.set_data(fits.PrimaryHDU(gray))
+        self.display.set_data(fits.PrimaryHDU(gray, header=make_header(self._device, gray)))
         self.expose.set_exposures_left()
 
     def closeEvent(self, event: Any) -> None:
